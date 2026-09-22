@@ -1,0 +1,62 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux
+          - os: macos-latest
+            name: macOS
+          - os: windows-latest
+            name: Windows
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # JUCE se descarga vía FetchContent (ver CMakeLists.txt) en vez de
+      # ir como submódulo, así que lo cacheamos por hash de CMakeLists.txt
+      # para no volver a bajarlo en cada corrida.
+      - name: Cache JUCE (FetchContent)
+        uses: actions/cache@v4
+        with:
+          path: build/_deps/juce-src
+          key: juce-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Instalar dependencias del sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev libjack-jackd2-dev ladspa-sdk \
+            libcurl4-openssl-dev libfreetype6-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev \
+            libwebkit2gtk-4.1-dev libglu1-mesa-dev mesa-common-dev
+
+      - name: Configurar (CMake)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DJUCE_BUILD_EXTRAS=OFF -DJUCE_BUILD_EXAMPLES=OFF
+
+      - name: Compilar
+        run: cmake --build build --config Release --parallel
+
+      - name: Subir artefactos (VST3 / AU / Standalone)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearSpace-${{ matrix.name }}
+          if-no-files-found: ignore
+          path: |
+            build/ClearSpace_artefacts/Release/VST3
+            build/ClearSpace_artefacts/Release/AU
+            build/ClearSpace_artefacts/Release/Standalone
